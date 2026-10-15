@@ -933,3 +933,37 @@ suite "GossipSub":
     # Then the topic should be removed from mesh
     check:
       topic notin gossipSub.mesh
+
+  asyncTest "publish - already-seen message is not delivered to local handlers again":
+    # Given a GossipSub instance delivering to itself, with a peer to publish to
+    let (gossipSub, conns, _) =
+      setupGossipSubWithPeers(1, topic, populateMesh = true, populateGossipsub = true)
+    defer:
+      await teardownGossipSub(gossipSub, conns)
+    gossipSub.triggerSelf = true
+
+    # And a msgIdProvider that maps messages to an id derived from the first byte
+    func firstByteMsgIdProvider(m: Message): Result[MessageId, ValidationResult] =
+      ok(MessageId(@[m.data[0]]))
+    gossipSub.msgIdProvider = firstByteMsgIdProvider
+
+    # And a local handler counting deliveries
+    var delivered = 0
+    proc handler(topic: string, data: seq[byte]) {.async.} =
+      inc delivered
+
+    gossipSub.subscribe(topic, handler)
+
+    # When two messages with the same id are published, then one with a new id
+    discard await gossipSub.publish(topic, @[1'u8, 1])
+    discard await gossipSub.publish(topic, @[1'u8, 2])
+
+    # Then the duplicate is dropped before reaching the local handler
+    check:
+      delivered == 1
+
+    discard await gossipSub.publish(topic, @[2'u8])
+
+    # And a message with a different id is still delivered
+    check:
+      delivered == 2

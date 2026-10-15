@@ -956,6 +956,17 @@ method publish*(
       messageSize, maxMessageSize = g.maxMessageSize
     return 0
 
+  # Check seen-cache before delivering locally: otherwise re-publishing an
+  # already-seen message (custom msgIdProvider) would re-run local handlers.
+  let msgId = g.msgIdProvider(msg).valueOr:
+    trace "Publish skipped after message ID generation failed", err = error
+    g.handleSelfPublishing(topic, data)
+    libp2p_gossipsub_failed_publish.inc()
+    return 0
+
+  if g.isDuplicatePublish(msgId):
+    return 0
+
   g.handleSelfPublishing(topic, data)
 
   trace "Publishing message", messageSize = data.len
@@ -983,11 +994,6 @@ method publish*(
     libp2p_gossipsub_failed_publish.inc()
     return 0
 
-  let msgId = g.msgIdProvider(msg).valueOr:
-    trace "Publish skipped after message ID generation failed", err = error
-    libp2p_gossipsub_failed_publish.inc()
-    return 0
-
   logScope:
     msgId = shortLog(msgId)
 
@@ -995,10 +1001,6 @@ method publish*(
     messageType = "publish", messageSize = messageSize, peerCount = peers.len
 
   if g.addSeen(g.salt(msgId)):
-    # If the message was received or published recently, don't re-publish it -
-    # this might happen when not using sequence id:s and / or with a custom
-    # message id provider
-    trace "Dropping already-seen message"
     return 0
 
   if not pubParams.skipMCache:
