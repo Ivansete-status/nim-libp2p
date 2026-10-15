@@ -237,7 +237,7 @@ method publish*(
     f.handleSelfPublishing(topic, data)
     return 0
 
-  if f.addSeen(f.salt(msgId)):
+  if f.hasSeen(f.salt(msgId)):
     # custom msgid providers might cause this
     trace "Dropping already-seen message", msgId, topic
     return 0
@@ -256,6 +256,11 @@ method publish*(
     peerCount = peers.len,
     topic,
     msgId
+
+  # Only a publish that has peers to relay to marks the message as seen.
+  if f.addSeen(f.salt(msgId)):
+    trace "Dropping already-seen message", msgId, topic
+    return 0
 
   # Try to send to all peers that are known to be interested
   f.broadcast(peers, RPCMsg.withMessages(msg), MessagePriority.Medium)

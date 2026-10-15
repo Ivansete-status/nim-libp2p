@@ -964,7 +964,7 @@ method publish*(
     libp2p_gossipsub_failed_publish.inc()
     return 0
 
-  if g.addSeen(g.salt(msgId)):
+  if g.hasSeen(g.salt(msgId)):
     # If the message was received or published recently, don't re-publish it -
     # this might happen when not using sequence id:s and / or with a custom
     # message id provider
@@ -1003,6 +1003,12 @@ method publish*(
 
   trace "Message created",
     messageType = "publish", messageSize = messageSize, peerCount = peers.len
+
+  # Only a publish that has peers to relay to marks the message as seen, so a
+  # publish retried after a peer joins is not taken for a duplicate.
+  if g.addSeen(g.salt(msgId)):
+    trace "Dropping already-seen message"
+    return 0
 
   if not pubParams.skipMCache:
     g.mcache.put(msgId, msg)
